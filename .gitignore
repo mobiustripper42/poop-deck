@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Env / secrets (never commit connection strings or broker creds)
+.env
+.env.*
+!.env.example
+
+# Sessions worktree — orphan `sessions` branch, checked out here (DEC-S014)
+.sessions-worktree/
+
+# Local container volumes / data if ever bind-mounted
+deploy/data/
+
+# OS
+.DS_Store
