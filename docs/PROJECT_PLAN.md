@@ -28,13 +28,13 @@ The thinnest real end-to-end slice: the compose stack up, the irrigation hyperta
 
 **Done when:** a published irrigation event lands in Timescale through the dumb daemon and shows on the tinkle dashboard, and a replayed/duplicate event is a proven no-op.
 
-| Task | Description | Points |
-|------|-------------|--------|
-| 1.1 | `deploy/docker-compose.yml` — Mosquitto + TimescaleDB + Grafana, pinned images, env, volumes, Timescale init that applies `db/migrations/`. Stack comes up clean on a laptop. | 3 |
-| 1.2 | Apply + verify the irrigation schema — hypertable created, `(source, zone, ts_start)` unique index present, the gallons/min query from the schema comment runs. | 2 |
-| 1.3 | Wire the tinkle ingest daemon against the stack — env (`MQTT_HOST`, `PG_DSN`), pytest for the validate-and-drop + idempotency logic (missing fields dropped, unknown `v` dropped, redelivery a no-op). | 3 |
-| 1.4 | Tinkle irrigation dashboard — gallons/min by zone, per-zone run history, fault surfacing. Phone-usable. Lives in `dashboards/`, provisioned into Grafana. | 5 |
-| 1.5 | End-to-end proof — a synthetic tinkle publisher → daemon → Timescale → dashboard moves; idempotent replay demonstrated. | 3 |
+| Task | Description | Points | Issue |
+|------|-------------|--------|-------|
+| 1.1 | `deploy/docker-compose.yml` — Mosquitto + TimescaleDB + Grafana, pinned images, env, volumes, Timescale init that applies `db/migrations/`. Stack comes up clean on a laptop. | 3 | [#2](https://github.com/mobiustripper42/poop-deck/issues/2) |
+| 1.2 | Apply + verify the irrigation schema — hypertable created, `(source, zone, ts_start)` unique index present, the gallons/min query from the schema comment runs. | 2 | [#3](https://github.com/mobiustripper42/poop-deck/issues/3) |
+| 1.3 | Wire the tinkle ingest daemon against the stack — env (`MQTT_HOST`, `PG_DSN`), pytest for the validate-and-drop + idempotency logic (missing fields dropped, unknown `v` dropped, redelivery a no-op). | 3 | [#4](https://github.com/mobiustripper42/poop-deck/issues/4) |
+| 1.4 | Tinkle irrigation dashboard — gallons/min by zone, per-zone run history, fault surfacing. Phone-usable. Lives in `dashboards/`, provisioned into Grafana. | 5 | [#5](https://github.com/mobiustripper42/poop-deck/issues/5) |
+| 1.5 | End-to-end proof — a synthetic tinkle publisher → daemon → Timescale → dashboard moves; idempotent replay demonstrated. | 3 | [#6](https://github.com/mobiustripper42/poop-deck/issues/6) |
 
 **Phase 1 total: 16 points.**
 
