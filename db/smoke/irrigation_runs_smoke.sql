@@ -25,12 +25,15 @@ BEGIN
         RAISE EXCEPTION 'irrigation_runs is not a hypertable';
     END IF;
 
+    -- Check it's actually UNIQUE, not just present — a same-named non-unique
+    -- index would give no dedup guarantee but pass a name-only check.
     IF NOT EXISTS (
-        SELECT 1 FROM pg_indexes
-        WHERE tablename = 'irrigation_runs'
-          AND indexname = 'irrigation_runs_natural_key'
+        SELECT 1 FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indexrelid
+        WHERE c.relname = 'irrigation_runs_natural_key'
+          AND i.indisunique
     ) THEN
-        RAISE EXCEPTION 'natural-key unique index irrigation_runs_natural_key missing';
+        RAISE EXCEPTION 'natural-key index irrigation_runs_natural_key missing or not unique';
     END IF;
 END $$;
 
@@ -59,6 +62,24 @@ BEGIN
         RAISE EXCEPTION 'redelivery overwrote the row (gallons=%, expected 12.5)', g;
     END IF;
     RAISE NOTICE 'idempotency OK: duplicate natural key is a no-op';
+END $$;
+
+-- Same source + ts_start but a different zone is a DIFFERENT natural key, so it
+-- must land as its own row. Proves the key is (source, zone, ts_start), not just
+-- source or source+ts_start.
+INSERT INTO irrigation_runs (ts_start, source, zone, duration_s, gallons)
+VALUES ('2026-07-15T00:00:00Z', 'smoke-test', 2, 300, 6.0)
+ON CONFLICT (source, zone, ts_start) DO NOTHING;
+
+DO $$
+DECLARE
+    n int;
+BEGIN
+    SELECT count(*) INTO n FROM irrigation_runs WHERE source = 'smoke-test';
+    IF n <> 2 THEN
+        RAISE EXCEPTION 'expected 2 rows across zones, got % (zone not part of the key?)', n;
+    END IF;
+    RAISE NOTICE 'natural key spans zone: distinct zone is a distinct row';
 END $$;
 
 -- 4: the query the schema comment promises we will actually run.
