@@ -6,7 +6,19 @@ Ordered SQL migrations applied to the TimescaleDB store. Migrations are the sour
 
 | File | Producer | Notes |
 |------|----------|-------|
-| `migrations/0001_irrigation_runs.sql` | tinkle | **Staged from the tinkle handoff — Phase-1 substrate, not yet applied.** Semantic-only hypertable (`gallons`, `duration_s`): correct for an *event* producer, where the run's fields *are* the fact. Natural key `(source, zone, ts_start)`, `ON CONFLICT DO NOTHING` for QoS-1 redelivery. |
+| `migrations/0000_enable_timescaledb.sql` | — | Enables the TimescaleDB extension. Sorts first so every hypertable migration can call `create_hypertable()`. Cross-producer, not irrigation-specific. |
+| `migrations/0001_irrigation_runs.sql` | tinkle | Semantic-only hypertable (`gallons`, `duration_s`): correct for an *event* producer, where the run's fields *are* the fact. Natural key `(source, zone, ts_start)`, `ON CONFLICT DO NOTHING` for QoS-1 redelivery. |
+
+## Smoke checks
+
+`smoke/*.sql` — re-runnable, side-effect-free (wrapped in a transaction that `ROLLBACK`s) checks that a migration's schema behaves. Run against the compose stack:
+
+```bash
+docker exec -i deploy-timescale-1 psql -U poopdeck -d farm \
+    -v ON_ERROR_STOP=1 -f - < db/smoke/irrigation_runs_smoke.sql
+```
+
+`irrigation_runs_smoke.sql` asserts: it's a hypertable, the natural-key unique index exists, a duplicate insert is a no-op, and the gallons/min query runs. Exits non-zero on any failed assertion.
 
 ## Storage-kind rule (DEC-005)
 
