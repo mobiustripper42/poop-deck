@@ -8,7 +8,24 @@ Dependencies: `paho-mqtt`, `psycopg[binary]`. Config via env (`MQTT_HOST`, `MQTT
 
 | File | Producer | Topic | Table | Status |
 |------|----------|-------|-------|--------|
-| `irrigation_ingest.py` | tinkle | `farm/irrigation/+/+` | `irrigation_runs` | **Staged from the tinkle handoff — Phase-1 substrate.** Wired against the compose stack in Phase 1. |
+| `irrigation_ingest.py` | tinkle | `farm/irrigation/+/+` | `irrigation_runs` | Wired against the compose stack. `build_row` validates, `insert_row` writes idempotently, `on_message` glues them. |
+
+## Run it
+
+```bash
+MQTT_HOST=localhost PG_DSN=postgresql://poopdeck@localhost/farm \
+    python ingest/irrigation_ingest.py
+```
+
+## Tests
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install pytest paho-mqtt 'psycopg[binary]'
+.venv/bin/python -m pytest                 # unit tests only (fake DB seam, no services)
+PG_DSN=postgresql://poopdeck@localhost/farm .venv/bin/python -m pytest   # + live redelivery no-op
+```
+
+Unit tests use a fake DB seam, so they run without a broker or database. The one live test (`test_redelivery_is_a_noop_live`) inserts the same row twice against the running stack and asserts one row survives; it **skips** cleanly if no Timescale is reachable.
 
 ## The contract every daemon honors (DEC-004)
 

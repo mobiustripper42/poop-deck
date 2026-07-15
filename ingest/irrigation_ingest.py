@@ -23,6 +23,7 @@ TOPIC = "farm/irrigation/+/+"
 DSN = os.environ.get("PG_DSN", "postgresql://poopdeck@localhost/farm")
 
 REQUIRED = ("v", "source", "zone", "ts_start", "duration_s")
+SCHEMA_V = 1
 
 INSERT = """
 INSERT INTO irrigation_runs
@@ -39,32 +40,23 @@ logging.basicConfig(
 log = logging.getLogger("irrigation-ingest")
 
 
-def on_connect(client, userdata, flags, rc, properties=None):
-    if rc == 0:
-        client.subscribe(TOPIC, qos=1)
-        log.info("connected, subscribed to %s", TOPIC)
-    else:
-        log.error("connect failed rc=%s", rc)
+def build_row(payload, topic=""):
+    """Validate a decoded payload and shape it into an insert row.
 
-
-def on_message(client, userdata, msg):
-    conn = userdata["conn"]
-    try:
-        payload = json.loads(msg.payload)
-    except json.JSONDecodeError:
-        log.warning("unparseable payload on %s: %r", msg.topic, msg.payload[:200])
-        return
-
+    Returns the row dict, or None to drop (missing fields / unknown schema
+    version). Pure and side-effect-free apart from logging — the testable
+    heart of the validate-and-drop contract (DEC-004).
+    """
     missing = [k for k in REQUIRED if k not in payload]
     if missing:
-        log.warning("dropping %s, missing fields: %s", msg.topic, missing)
-        return
+        log.warning("dropping %s, missing fields: %s", topic, missing)
+        return None
 
-    if payload["v"] != 1:
-        log.warning("unknown schema v=%s on %s, dropping", payload["v"], msg.topic)
-        return
+    if payload["v"] != SCHEMA_V:
+        log.warning("unknown schema v=%s on %s, dropping", payload["v"], topic)
+        return None
 
-    row = {
+    return {
         "ts_start": payload["ts_start"],
         "source": payload["source"],
         "zone": payload["zone"],
@@ -76,6 +68,10 @@ def on_message(client, userdata, msg):
         "v": payload["v"],
     }
 
+
+def insert_row(conn, row):
+    """Idempotently insert one row. A DB error rolls back and is logged —
+    it never propagates, so a poison row can't kill the daemon (DEC-004)."""
     try:
         with conn.cursor() as cur:
             cur.execute(INSERT, row)
@@ -91,6 +87,29 @@ def on_message(client, userdata, msg):
     except psycopg.Error as e:
         conn.rollback()
         log.error("insert failed: %s", e)
+
+
+def on_message(client, userdata, msg):
+    """MQTT glue: decode → validate → insert. Never raises out of here."""
+    try:
+        payload = json.loads(msg.payload)
+    except json.JSONDecodeError:
+        log.warning("unparseable payload on %s: %r", msg.topic, msg.payload[:200])
+        return
+
+    row = build_row(payload, msg.topic)
+    if row is None:
+        return
+
+    insert_row(userdata["conn"], row)
+
+
+def on_connect(client, userdata, flags, rc, properties=None):
+    if rc == 0:
+        client.subscribe(TOPIC, qos=1)
+        log.info("connected, subscribed to %s", TOPIC)
+    else:
+        log.error("connect failed rc=%s", rc)
 
 
 def main():
