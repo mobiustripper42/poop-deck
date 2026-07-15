@@ -1,0 +1,58 @@
+# Poop Deck :: the stack
+# Mosquitto (MQTT) + TimescaleDB (store) + Grafana (the only UI).
+# Same shape on a dev laptop and on the farm's Beelink. Pin every image.
+#
+#   docker compose -f deploy/docker-compose.yml up -d
+#   docker compose -f deploy/docker-compose.yml down        # keep data
+#   docker compose -f deploy/docker-compose.yml down -v      # wipe volumes (re-runs migrations on next up)
+
+services:
+  timescale:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: poopdeck
+      POSTGRES_DB: farm
+      # Local dev only: the daemon DSN is passwordless (postgresql://poopdeck@host/farm).
+      # The farm box sets a real password + scoped auth; never trust in prod.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      # Applied in filename order on FIRST init (empty volume only). `down -v` to re-run.
+      - ../db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U poopdeck -d farm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0.20
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+
+  grafana:
+    image: grafana/grafana-oss:11.4.0
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      # Dashboard/datasource provisioning is wired in task 1.4 (provisioning YAML under
+      # ../dashboards → /etc/grafana/provisioning, with the correct provider layout).
+    depends_on:
+      timescale:
+        condition: service_healthy
+
+volumes:
+  timescale-data:
+  mosquitto-data:
+  mosquitto-log:
+  grafana-data:
