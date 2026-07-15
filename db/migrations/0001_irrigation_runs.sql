@@ -1,9 +1,6 @@
 -- Poop Deck :: farm/irrigation slice
 -- One row per zone, per run. Blessed payload v1.
-
--- Turn on TimescaleDB in this database before we use create_hypertable() below.
--- Self-contained on purpose: don't depend on the container image to have done it.
-CREATE EXTENSION IF NOT EXISTS timescaledb;
+-- Requires 0000_enable_timescaledb.sql (runs first) for create_hypertable().
 
 CREATE TABLE IF NOT EXISTS irrigation_runs (
     ts_start    TIMESTAMPTZ  NOT NULL,
