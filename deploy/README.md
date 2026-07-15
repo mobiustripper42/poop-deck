@@ -6,4 +6,16 @@
 - **TimescaleDB** — the Postgres time-series store; `db/migrations/` applied on init.
 - **Grafana** — the dashboards (the only UI). Producer dashboards provision in from each producer's repo; shared/overview dashboards live in `dashboards/`.
 
-Pin every image. The compose stack runs the whole thing on a laptop for development; the real deployment mirrors its shape on the farm's headless box (the Beelink). Nothing to run yet — placeholder until task 1.1.
+Pin every image. The compose stack runs the whole thing on a laptop for development; the real deployment mirrors its shape on the farm's headless box (the Beelink).
+
+```bash
+docker compose -f deploy/docker-compose.yml up -d      # bring the stack up
+docker compose -f deploy/docker-compose.yml down       # stop, keep data
+docker compose -f deploy/docker-compose.yml down -v     # stop + wipe volumes
+```
+
+- **TimescaleDB** on `5432` — user `poopdeck`, db `farm` (matches the daemon DSN `postgresql://poopdeck@localhost/farm`). `db/migrations/` is mounted into `/docker-entrypoint-initdb.d` and replays **in filename order on first init only** — an empty data volume. To re-apply from scratch, `down -v` then `up`.
+- **Mosquitto** on `1883` — anonymous listener for local dev (`mosquitto/mosquitto.conf`).
+- **Grafana** on `3000` — data-only for now; dashboard/datasource provisioning lands in task 1.4. Default login is `admin` / `admin` until 1.4 sets real credentials.
+
+**Local-dev only — not hardened.** All three services publish on `0.0.0.0`, so anything on bee-grace's network can reach them. Postgres uses passwordless `trust` auth and MQTT allows anonymous connections. That's deliberate for dev: the phone needs Grafana, and real producers publish to the broker over the LAN. Before this holds real farm data long-term it needs a Postgres password, MQTT credentials/ACLs, and Grafana admin creds — tracked as prod-hardening, not part of Phase 1.

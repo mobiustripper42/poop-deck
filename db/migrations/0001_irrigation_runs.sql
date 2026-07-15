@@ -1,5 +1,6 @@
 -- Poop Deck :: farm/irrigation slice
 -- One row per zone, per run. Blessed payload v1.
+-- Requires 0000_enable_timescaledb.sql (runs first) for create_hypertable().
 
 CREATE TABLE IF NOT EXISTS irrigation_runs (
     ts_start    TIMESTAMPTZ  NOT NULL,
