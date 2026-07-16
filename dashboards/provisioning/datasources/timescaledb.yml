@@ -1,0 +1,20 @@
+# Poop Deck :: Grafana datasource — the TimescaleDB store.
+# Provisioned in from the repo so the shared Grafana always points at the store.
+# Connects over the compose network to the `timescale` service.
+apiVersion: 1
+
+datasources:
+  - name: TimescaleDB
+    uid: poopdeck-timescale
+    type: postgres
+    access: proxy
+    url: timescale:5432
+    user: poopdeck
+    jsonData:
+      database: farm
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: true
+    # Local dev uses passwordless trust auth (see deploy/); no secureJsonData.
+    isDefault: true
+    editable: false

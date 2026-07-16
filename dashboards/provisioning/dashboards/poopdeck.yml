@@ -1,0 +1,16 @@
+# Poop Deck :: Grafana dashboard provider.
+# Loads dashboard JSON from /etc/dashboards (bind-mounted from dashboards/ in
+# the repo). foldersFromFilesStructure keeps the repo's folder layout in the UI,
+# so dashboards/tinkle/*.json lands in a "tinkle" folder.
+apiVersion: 1
+
+providers:
+  - name: poopdeck
+    orgId: 1
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/dashboards
+      foldersFromFilesStructure: true

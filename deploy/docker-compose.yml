@@ -45,8 +45,13 @@ services:
       - "3000:3000"
     volumes:
       - grafana-data:/var/lib/grafana
-      # Dashboard/datasource provisioning is wired in task 1.4 (provisioning YAML under
-      # ../dashboards → /etc/grafana/provisioning, with the correct provider layout).
+      # Repo-owned provisioning: the TimescaleDB datasource + dashboard provider.
+      # Mount the specific subdirs (not the parent) so Grafana's own empty
+      # plugins/ and alerting/ provisioning dirs stay intact — no missing-dir errors.
+      - ../dashboards/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ../dashboards/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      # Dashboard JSON — the provider (poopdeck.yml) reads /etc/dashboards.
+      - ../dashboards/tinkle:/etc/dashboards/tinkle:ro
     depends_on:
       timescale:
         condition: service_healthy
