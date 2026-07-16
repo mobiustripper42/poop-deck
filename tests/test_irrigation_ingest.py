@@ -102,6 +102,12 @@ def test_build_row_drops_unknown_schema_version():
     assert ing.build_row(payload) is None
 
 
+@pytest.mark.parametrize("payload", [None, 42, True, "a string", [1, 2, 3]])
+def test_build_row_drops_non_object_payload(payload):
+    # Valid JSON but not an object — must drop, not crash.
+    assert ing.build_row(payload) is None
+
+
 # --- on_message: decode + never-crash --------------------------------------
 
 def test_on_message_valid_inserts_once():
@@ -117,6 +123,15 @@ def test_on_message_valid_inserts_once():
 def test_on_message_unparseable_json_dropped():
     conn = FakeConn()
     ing.on_message(None, {"conn": conn}, FakeMsg(b"this is not json {"))
+    assert conn.executed == []
+    assert conn.committed == 0
+
+
+@pytest.mark.parametrize("raw", [b"null", b"42", b"true", b'"just a string"', b"[1, 2, 3]"])
+def test_on_message_non_object_json_dropped(raw):
+    # Valid JSON, non-object top level — the crash case. Must drop, never raise.
+    conn = FakeConn()
+    ing.on_message(None, {"conn": conn}, FakeMsg(raw))
     assert conn.executed == []
     assert conn.committed == 0
 

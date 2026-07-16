@@ -113,7 +113,7 @@ The shell's `## Migration Protocol` **discipline** holds (migrations are the sou
 
 ## Testing
 
-- **Ingest (pytest):** the load-bearing tier — validate-and-drop, unknown-`v` drop, natural-key dedup, never-crash-on-poison. Inject a fake DB/broker seam so it runs without live services.
+- **Ingest (pytest):** the load-bearing tier — validate-and-drop, unknown-`v` drop, never-crash-on-poison. A fake DB/broker seam runs these without live services. **Natural-key dedup is DB behavior (`ON CONFLICT`)** — a fake seam can't prove it, so it's covered by an opt-in live test that inserts twice against the running stack and skips cleanly when no Postgres is reachable.
 - **SQL smoke:** a fresh migration creates the hypertable + unique index; a duplicate insert is a no-op.
 - **End-to-end:** compose stack + a synthetic publisher → daemon → Timescale → dashboard moves; idempotent replay proven. No hardware.
 

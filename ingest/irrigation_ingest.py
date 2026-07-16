@@ -47,6 +47,12 @@ def build_row(payload, topic=""):
     version). Pure and side-effect-free apart from logging — the testable
     heart of the validate-and-drop contract (DEC-004).
     """
+    # Valid JSON that isn't an object (null, a scalar, an array) would crash the
+    # `k not in payload` check below — drop it, don't let a poison publish through.
+    if not isinstance(payload, dict):
+        log.warning("dropping %s, payload is not a JSON object: %r", topic, payload)
+        return None
+
     missing = [k for k in REQUIRED if k not in payload]
     if missing:
         log.warning("dropping %s, missing fields: %s", topic, missing)
