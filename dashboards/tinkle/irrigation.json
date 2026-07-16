@@ -1,0 +1,133 @@
+{
+  "uid": "poopdeck-irrigation",
+  "title": "Irrigation — tinkle",
+  "tags": ["tinkle", "irrigation", "poop-deck"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": { "from": "now-7d", "to": "now" },
+  "timepicker": {},
+  "annotations": { "list": [] },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Faults in range",
+      "description": "Runs reporting a fault in the selected time range. Any non-zero is worth a look.",
+      "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS \"Faults\"\nFROM irrigation_runs\nWHERE $__timeFilter(ts_start) AND fault IS NOT NULL"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Gallons / minute by zone",
+      "description": "Per-run delivery rate (gallons / duration * 60). Watch for a zone drifting low — the far-end under-delivery the EC gradient hints at.",
+      "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 6,
+            "lineWidth": 1,
+            "showPoints": "always",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT ts_start AS \"time\",\n       'zone ' || zone AS metric,\n       gallons / NULLIF(duration_s, 0) * 60 AS gpm\nFROM irrigation_runs\nWHERE $__timeFilter(ts_start) AND fault IS NULL AND gallons IS NOT NULL\nORDER BY ts_start"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Run history",
+      "description": "Most recent runs across all zones.",
+      "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 12 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": { "showHeader": true, "cellHeight": "sm" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ts_start AS \"Start\",\n       zone AS \"Zone\",\n       duration_s AS \"Duration (s)\",\n       gallons AS \"Gallons\",\n       round((gallons / NULLIF(duration_s, 0) * 60)::numeric, 2) AS \"gal/min\",\n       fertigated AS \"Fertigated\",\n       fault AS \"Fault\"\nFROM irrigation_runs\nWHERE $__timeFilter(ts_start)\nORDER BY ts_start DESC\nLIMIT 200"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Faults",
+      "description": "Runs that reported a fault. Empty is good.",
+      "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 21 },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Fault" },
+            "properties": [ { "id": "custom.cellOptions", "value": { "type": "color-text" } }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } } ]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "cellHeight": "sm" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ts_start AS \"Start\",\n       zone AS \"Zone\",\n       fault AS \"Fault\",\n       duration_s AS \"Duration (s)\",\n       gallons AS \"Gallons\"\nFROM irrigation_runs\nWHERE $__timeFilter(ts_start) AND fault IS NOT NULL\nORDER BY ts_start DESC\nLIMIT 200"
+        }
+      ]
+    }
+  ]
+}
