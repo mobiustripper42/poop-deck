@@ -18,7 +18,7 @@ Rows use `source = 'tinkle-sim'`, so simulated data is identifiable and easy to 
 DELETE FROM irrigation_runs WHERE source = 'tinkle-sim';
 ```
 
-The batch timestamps are truncated to the current hour, so `--replay` reproduces the same natural keys and the store dedups them — **run the replay in the same clock hour** as the original publish for the idempotency demo.
+`--replay` resends the exact payloads saved from the last plain run (to a temp file), so the natural keys match and the store dedups them no matter when you replay. Run a plain publish once before `--replay`.
 
 ## End-to-end proof (task 1.5)
 
