@@ -16,4 +16,4 @@ tinkle/
 
 The compose Grafana bind-mounts `provisioning/datasources` and `provisioning/dashboards` into `/etc/grafana/provisioning/…` (the specific subdirs, so Grafana's own `plugins/` + `alerting/` stay intact), and `tinkle/` into `/etc/dashboards/tinkle`. Everything provisions on boot — no clicking.
 
-**Irrigation dashboard** (`tinkle/irrigation.json`): single-column, phone-usable. Panels — faults-in-range stat (red on any fault), gallons/min by zone, run history, and a faults table. All time-range-scoped off `ts_start`. Grafana is reachable at `:3000` (default `admin`/`admin` until 1.4-hardening).
+**Irrigation dashboard** (`tinkle/irrigation.json`): single-column, phone-usable. Panels — faults-in-range stat (red on any fault), gallons/min by zone, run history, and a faults table. All time-range-scoped off `ts_start`. Grafana is reachable at `:3000` (default `admin`/`admin` until prod-hardening — see `deploy/README.md` and issue #10).
