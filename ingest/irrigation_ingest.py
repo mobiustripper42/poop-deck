@@ -13,12 +13,16 @@ import logging
 import os
 import signal
 import sys
+import time
 
 import paho.mqtt.client as mqtt
 import psycopg
 
 BROKER = os.environ.get("MQTT_HOST", "localhost")
 PORT = int(os.environ.get("MQTT_PORT", 1883))
+# Broker credentials (unset → anonymous, for local/dev brokers that allow it).
+MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
+MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
 TOPIC = "farm/irrigation/+/+"
 DSN = os.environ.get("PG_DSN", "postgresql://poopdeck@localhost/farm")
 
@@ -75,9 +79,25 @@ def build_row(payload, topic=""):
     }
 
 
+def connect_db(dsn):
+    """Open a DB connection, retrying with capped backoff until it succeeds.
+    Covers both the startup race (DB not up yet) and a mid-run DB restart —
+    the daemon waits the outage out instead of dying (see on_message)."""
+    delay = 1
+    while True:
+        try:
+            return psycopg.connect(dsn, autocommit=False)
+        except psycopg.OperationalError as e:
+            log.error("db connect failed (%s); retrying in %ss", e, delay)
+            time.sleep(delay)
+            delay = min(delay * 2, 30)
+
+
 def insert_row(conn, row):
-    """Idempotently insert one row. A DB error rolls back and is logged —
-    it never propagates, so a poison row can't kill the daemon (DEC-004)."""
+    """Idempotently insert one row. A DB error rolls back and is logged — it
+    never propagates, so a poison row can't kill the daemon (DEC-004). Returns
+    True on commit, False on a handled error (caller checks conn.closed to tell
+    a poison row apart from a dropped connection)."""
     try:
         with conn.cursor() as cur:
             cur.execute(INSERT, row)
@@ -90,9 +110,14 @@ def insert_row(conn, row):
             row["fertigated"],
             f"  FAULT={row['fault']}" if row["fault"] else "",
         )
+        return True
     except psycopg.Error as e:
-        conn.rollback()
+        try:
+            conn.rollback()
+        except psycopg.Error:
+            pass  # connection already gone — nothing to roll back
         log.error("insert failed: %s", e)
+        return False
 
 
 def on_message(client, userdata, msg):
@@ -107,7 +132,16 @@ def on_message(client, userdata, msg):
     if row is None:
         return
 
-    insert_row(userdata["conn"], row)
+    conn = userdata["conn"]
+    if conn.closed:
+        conn = userdata["conn"] = connect_db(userdata["dsn"])
+
+    if not insert_row(conn, row) and conn.closed:
+        # The connection died mid-insert (DB restart), not a poison row —
+        # reconnect and replay this one message once. QoS-1 redelivery would
+        # cover it too, but retrying keeps a healthy message from being lost.
+        conn = userdata["conn"] = connect_db(userdata["dsn"])
+        insert_row(conn, row)
 
 
 def on_connect(client, userdata, flags, rc, properties=None):
@@ -119,10 +153,13 @@ def on_connect(client, userdata, flags, rc, properties=None):
 
 
 def main():
-    conn = psycopg.connect(DSN, autocommit=False)
+    conn = connect_db(DSN)
     client = mqtt.Client(
-        mqtt.CallbackAPIVersion.VERSION2, userdata={"conn": conn}
+        mqtt.CallbackAPIVersion.VERSION2,
+        userdata={"conn": conn, "dsn": DSN},
     )
+    if MQTT_USERNAME:
+        client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
     client.on_connect = on_connect
     client.on_message = on_message
 

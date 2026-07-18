@@ -33,6 +33,10 @@ import paho.mqtt.client as mqtt
 
 HOST = os.environ.get("MQTT_HOST", "localhost")
 PORT = int(os.environ.get("MQTT_PORT", 1883))
+# Broker credentials (unset → anonymous). Against the hardened broker, pass the
+# tinkle producer creds: MQTT_USERNAME=tinkle MQTT_PASSWORD=... (see deploy/.env).
+USERNAME = os.environ.get("MQTT_USERNAME")
+PASSWORD = os.environ.get("MQTT_PASSWORD")
 SOURCE = os.environ.get("SYNTH_SOURCE", "tinkle-sim")
 # Rendered payloads from the last plain run, so --replay resends them verbatim.
 STATE_FILE = os.path.join(tempfile.gettempdir(), "poopdeck_synth_batch.json")
@@ -92,6 +96,8 @@ def connected_client() -> mqtt.Client:
             ready.set()
 
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    if USERNAME:
+        client.username_pw_set(USERNAME, PASSWORD)
     client.on_connect = on_connect
     client.connect(HOST, PORT, keepalive=30)
     client.loop_start()

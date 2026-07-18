@@ -1,0 +1,14 @@
+# Poop Deck :: MQTT ACLs
+# Each producer publishes only into its own namespace; the ingest consumer
+# reads everything under farm/. Add one stanza per new producer.
+#
+# Usernames here must match the MQTT_*_USER values in deploy/.env — the
+# password file is generated from those at container start.
+
+# The ingest daemon subscribes to every producer's topics.
+user ingest
+topic read farm/#
+
+# tinkle publishes irrigation run-complete events; nothing else.
+user tinkle
+topic write farm/irrigation/#

@@ -29,11 +29,11 @@ The boundary to every producer is **one-way** (DEC-002): producers publish; noth
 
 ## Stack
 
-- **Broker:** Mosquitto (MQTT), `1883`. Topics `farm/<producer>/…`.
-- **Store:** **TimescaleDB** (PostgreSQL + hypertables). Resolves soundings' D6 (DEC-003).
-- **Dashboards:** Grafana (the only UI). Producers provision their own dashboards/alerts in from their repos; Poop Deck owns the shared instance + overview dashboards.
-- **Ingest:** one small always-on Python daemon per producer — `paho-mqtt` + `psycopg[binary]`. Config via env (`MQTT_HOST`, `MQTT_PORT`, `PG_DSN`).
-- **Runtime:** `docker-compose` on a laptop for dev/sim; the same shape on the farm's headless box (the Beelink) for prod.
+- **Broker:** Mosquitto (MQTT), `1883`. Topics `farm/<producer>/…`. Authenticated: per-producer creds + ACLs (`deploy/mosquitto/aclfile`), anonymous off. Password file generated at container start from `deploy/.env`.
+- **Store:** **TimescaleDB** (PostgreSQL + hypertables). Resolves soundings' D6 (DEC-003). Scram password on TCP; published on `127.0.0.1:5432` only (LAN can't reach it) — Grafana + daemon use the compose network.
+- **Dashboards:** Grafana (the only UI). Producers provision their own dashboards/alerts in from their repos; Poop Deck owns the shared instance + overview dashboards. Real admin password, no anonymous access.
+- **Ingest:** one small always-on Python daemon per producer — `paho-mqtt` + `psycopg[binary]`. Runs as a compose service (`ingest/Dockerfile`, `restart: unless-stopped`); reconnects on broker or DB blips. Config via env (`MQTT_HOST`, `MQTT_PORT`, `MQTT_USERNAME`, `MQTT_PASSWORD`, `PG_DSN`).
+- **Runtime:** `docker-compose` on a laptop for dev/sim; the same shape on the farm's headless box (bee-grace) for prod. Secrets in gitignored `deploy/.env` (template: `deploy/.env.example`); pass `--env-file deploy/.env` on every compose command. Proportionate LAN hardening only — no TLS/MFA/disk-encryption (that's #10 territory).
 
 ## Repo Layout
 
