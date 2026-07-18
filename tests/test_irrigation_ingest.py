@@ -39,18 +39,25 @@ class FakeCursor:
     def execute(self, sql, params=None):
         self.conn.executed.append((sql, params))
         if self.conn.raise_on_execute:
+            # `dies` distinguishes a dropped connection (marks the conn closed,
+            # like a DB restart) from a poison-row error (conn stays usable).
+            if self.conn.dies:
+                self.conn.closed = True
             raise psycopg.Error("simulated db failure")
 
 
 class FakeConn:
     """Records execute/commit/rollback so a test can assert what the daemon did
-    without a real database. Set raise_on_execute to exercise the error path."""
+    without a real database. raise_on_execute exercises the error path; dies
+    also marks the connection closed, simulating a dropped DB connection."""
 
-    def __init__(self, raise_on_execute=False):
+    def __init__(self, raise_on_execute=False, dies=False):
         self.executed = []
         self.committed = 0
         self.rolled_back = 0
         self.raise_on_execute = raise_on_execute
+        self.dies = dies
+        self.closed = False
 
     def cursor(self):
         return FakeCursor(self)
@@ -146,9 +153,57 @@ def test_on_message_missing_field_no_insert():
 def test_insert_row_db_error_never_raises():
     conn = FakeConn(raise_on_execute=True)
     # Must not propagate — a poison row can't kill the daemon.
-    ing.insert_row(conn, ing.build_row(VALID))
+    assert ing.insert_row(conn, ing.build_row(VALID)) is False
     assert conn.rolled_back == 1
     assert conn.committed == 0
+
+
+# --- DB reconnect: survive a dropped connection (#14) -----------------------
+
+def test_on_message_reconnects_after_dropped_connection(monkeypatch):
+    # First conn dies mid-insert (like a DB restart); the daemon must reconnect
+    # and replay the message onto a fresh connection rather than wedge.
+    dead = FakeConn(raise_on_execute=True, dies=True)
+    fresh = FakeConn()
+    monkeypatch.setattr(ing, "connect_db", lambda dsn: fresh)
+
+    userdata = {"conn": dead, "dsn": "postgresql://x"}
+    ing.on_message(None, userdata, FakeMsg(VALID))
+
+    assert dead.rolled_back == 1        # failed attempt rolled back
+    assert userdata["conn"] is fresh    # swapped the dead conn out
+    assert fresh.committed == 1         # message landed on the reconnect
+
+
+def test_on_message_poison_row_does_not_reconnect(monkeypatch):
+    # A row-level DB error (conn still alive) must NOT trigger a reconnect —
+    # that's the drop-and-continue path, not a connection loss.
+    conn = FakeConn(raise_on_execute=True, dies=False)
+    called = {"connect": 0}
+    monkeypatch.setattr(ing, "connect_db", lambda dsn: called.__setitem__("connect", called["connect"] + 1))
+
+    userdata = {"conn": conn, "dsn": "postgresql://x"}
+    ing.on_message(None, userdata, FakeMsg(VALID))
+
+    assert conn.rolled_back == 1
+    assert called["connect"] == 0       # never reconnected
+    assert userdata["conn"] is conn     # same connection retained
+
+
+def test_on_message_reconnects_when_conn_already_closed(monkeypatch):
+    # Connection found already closed at the top of on_message → reconnect
+    # before even attempting the insert.
+    closed = FakeConn()
+    closed.closed = True
+    fresh = FakeConn()
+    monkeypatch.setattr(ing, "connect_db", lambda dsn: fresh)
+
+    userdata = {"conn": closed, "dsn": "postgresql://x"}
+    ing.on_message(None, userdata, FakeMsg(VALID))
+
+    assert closed.executed == []        # never used the dead conn
+    assert userdata["conn"] is fresh
+    assert fresh.committed == 1
 
 
 # --- redelivery-is-a-no-op: against the live stack -------------------------
