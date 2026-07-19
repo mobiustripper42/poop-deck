@@ -2,12 +2,15 @@
 Poop Deck :: irrigation ingest daemon tests
 
 The load-bearing tier (CLAUDE-context § Testing): validate-and-drop, unknown-v
-drop, never-crash-on-poison, and — against the live stack — redelivery-is-a-no-op.
-The unit tests use a fake DB seam so they run without a broker or database.
+drop, never-crash-on-poison, decouple-receive-from-persist (DEC-006), worker
+reconnect/backoff, and — against the live stack — redelivery-is-a-no-op. The
+unit tests use fake DB/queue seams so they run without a broker or database.
 """
 
 import json
 import os
+import queue
+import threading
 
 import psycopg
 import pytest
@@ -68,6 +71,9 @@ class FakeConn:
     def rollback(self):
         self.rolled_back += 1
 
+    def close(self):
+        self.closed = True
+
 
 class FakeMsg:
     def __init__(self, payload, topic="farm/irrigation/tinkle/zone1"):
@@ -76,6 +82,10 @@ class FakeMsg:
         else:
             self.payload = json.dumps(payload).encode()
         self.topic = topic
+
+
+def _userdata(maxsize=0):
+    return {"queue": queue.Queue(maxsize=maxsize)}
 
 
 # --- build_row: validate-and-drop ------------------------------------------
@@ -115,95 +125,125 @@ def test_build_row_drops_non_object_payload(payload):
     assert ing.build_row(payload) is None
 
 
-# --- on_message: decode + never-crash --------------------------------------
+# --- on_message: decode + enqueue + never-crash (DEC-006) ------------------
 
-def test_on_message_valid_inserts_once():
-    conn = FakeConn()
-    ing.on_message(None, {"conn": conn}, FakeMsg(VALID))
-    assert len(conn.executed) == 1
-    assert conn.committed == 1
-    sql, params = conn.executed[0]
-    assert "ON CONFLICT" in sql
-    assert params["source"] == "tinkle"
+def test_on_message_valid_enqueues_once():
+    ud = _userdata()
+    ing.on_message(None, ud, FakeMsg(VALID))
+    assert ud["queue"].qsize() == 1
+    row = ud["queue"].get_nowait()
+    assert row["source"] == "tinkle"
+    assert row["zone"] == 1
 
 
-def test_on_message_unparseable_json_dropped():
-    conn = FakeConn()
-    ing.on_message(None, {"conn": conn}, FakeMsg(b"this is not json {"))
-    assert conn.executed == []
-    assert conn.committed == 0
+def test_on_message_unparseable_json_not_enqueued():
+    ud = _userdata()
+    ing.on_message(None, ud, FakeMsg(b"this is not json {"))
+    assert ud["queue"].empty()
 
 
 @pytest.mark.parametrize("raw", [b"null", b"42", b"true", b'"just a string"', b"[1, 2, 3]"])
-def test_on_message_non_object_json_dropped(raw):
+def test_on_message_non_object_json_not_enqueued(raw):
     # Valid JSON, non-object top level — the crash case. Must drop, never raise.
-    conn = FakeConn()
-    ing.on_message(None, {"conn": conn}, FakeMsg(raw))
-    assert conn.executed == []
-    assert conn.committed == 0
+    ud = _userdata()
+    ing.on_message(None, ud, FakeMsg(raw))
+    assert ud["queue"].empty()
 
 
-def test_on_message_missing_field_no_insert():
-    conn = FakeConn()
+def test_on_message_missing_field_not_enqueued():
+    ud = _userdata()
     bad = {k: v for k, v in VALID.items() if k != "duration_s"}
-    ing.on_message(None, {"conn": conn}, FakeMsg(bad))
-    assert conn.executed == []
+    ing.on_message(None, ud, FakeMsg(bad))
+    assert ud["queue"].empty()
 
+
+def test_on_message_queue_full_drops_and_does_not_raise():
+    # DB down long enough to fill the buffer → drop-and-log, never block the
+    # network thread or raise (DEC-006 bounded/logged loss).
+    ud = _userdata(maxsize=1)
+    ud["queue"].put_nowait({"placeholder": True})
+    ing.on_message(None, ud, FakeMsg(VALID))  # must not raise
+    assert ud["queue"].qsize() == 1  # the valid row was dropped, not enqueued
+
+
+# --- insert_row: idempotent insert, never-raise ----------------------------
 
 def test_insert_row_db_error_never_raises():
     conn = FakeConn(raise_on_execute=True)
-    # Must not propagate — a poison row can't kill the daemon.
+    # Must not propagate — a poison row can't kill the worker.
     assert ing.insert_row(conn, ing.build_row(VALID)) is False
     assert conn.rolled_back == 1
     assert conn.committed == 0
 
 
-# --- DB reconnect: survive a dropped connection (#14) -----------------------
+# --- persist: survive a dropped connection on the worker (#14/#21) ----------
 
-def test_on_message_reconnects_after_dropped_connection(monkeypatch):
-    # First conn dies mid-insert (like a DB restart); the daemon must reconnect
-    # and replay the message onto a fresh connection rather than wedge.
+def test_persist_reconnects_after_dropped_connection(monkeypatch):
+    # First conn dies mid-insert (like a DB restart); persist must reconnect and
+    # replay the row onto a fresh connection rather than lose it.
     dead = FakeConn(raise_on_execute=True, dies=True)
     fresh = FakeConn()
     monkeypatch.setattr(ing, "connect_db", lambda dsn: fresh)
 
-    userdata = {"conn": dead, "dsn": "postgresql://x"}
-    ing.on_message(None, userdata, FakeMsg(VALID))
+    conn = ing.persist(dead, ing.build_row(VALID), "postgresql://x")
 
-    assert dead.rolled_back == 1        # failed attempt rolled back
-    assert userdata["conn"] is fresh    # swapped the dead conn out
-    assert fresh.committed == 1         # message landed on the reconnect
+    assert dead.rolled_back == 1     # failed attempt rolled back
+    assert conn is fresh             # returns the reconnected conn for reuse
+    assert fresh.committed == 1      # row landed on the reconnect
 
 
-def test_on_message_poison_row_does_not_reconnect(monkeypatch):
+def test_persist_poison_row_does_not_reconnect(monkeypatch):
     # A row-level DB error (conn still alive) must NOT trigger a reconnect —
     # that's the drop-and-continue path, not a connection loss.
     conn = FakeConn(raise_on_execute=True, dies=False)
     called = {"connect": 0}
-    monkeypatch.setattr(ing, "connect_db", lambda dsn: called.__setitem__("connect", called["connect"] + 1))
+    monkeypatch.setattr(
+        ing, "connect_db",
+        lambda dsn: called.__setitem__("connect", called["connect"] + 1),
+    )
 
-    userdata = {"conn": conn, "dsn": "postgresql://x"}
-    ing.on_message(None, userdata, FakeMsg(VALID))
+    result = ing.persist(conn, ing.build_row(VALID), "postgresql://x")
 
     assert conn.rolled_back == 1
-    assert called["connect"] == 0       # never reconnected
-    assert userdata["conn"] is conn     # same connection retained
+    assert called["connect"] == 0    # never reconnected
+    assert result is conn            # same connection retained
 
 
-def test_on_message_reconnects_when_conn_already_closed(monkeypatch):
-    # Connection found already closed at the top of on_message → reconnect
-    # before even attempting the insert.
+def test_persist_reconnects_when_conn_already_closed(monkeypatch):
+    # Connection already closed when persist is called → reconnect before even
+    # attempting the insert (covers a conn dropped while the queue was idle).
     closed = FakeConn()
     closed.closed = True
     fresh = FakeConn()
     monkeypatch.setattr(ing, "connect_db", lambda dsn: fresh)
 
-    userdata = {"conn": closed, "dsn": "postgresql://x"}
-    ing.on_message(None, userdata, FakeMsg(VALID))
+    conn = ing.persist(closed, ing.build_row(VALID), "postgresql://x")
 
-    assert closed.executed == []        # never used the dead conn
-    assert userdata["conn"] is fresh
+    assert closed.executed == []     # never used the dead conn
+    assert conn is fresh
     assert fresh.committed == 1
+
+
+# --- db_worker: drains the queue and stops gracefully ----------------------
+
+def test_db_worker_drains_then_stops(monkeypatch):
+    conn = FakeConn()
+    monkeypatch.setattr(ing, "connect_db", lambda dsn: conn)
+
+    q = queue.Queue()
+    q.put_nowait(ing.build_row(VALID))
+    q.put_nowait(ing.build_row(dict(VALID, ts_start="2026-07-15T01:00:00Z")))
+
+    stop = threading.Event()
+    worker = threading.Thread(target=ing.db_worker, args=(q, "postgresql://x", stop))
+    worker.start()
+    q.join()          # both rows processed (task_done called)
+    stop.set()        # then ask it to finish
+    worker.join(timeout=5)
+
+    assert not worker.is_alive()     # exited cleanly on stop
+    assert conn.committed == 2       # both rows landed
+    assert conn.closed               # closed its connection on the way out
 
 
 # --- redelivery-is-a-no-op: against the live stack -------------------------
