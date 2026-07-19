@@ -81,4 +81,28 @@ Decisions are numbered DEC-NNN. "DEC-TBD" means a decision is flagged but unreso
 
 ---
 
+## DEC-006: Ingest decouples receive from persist via a bounded in-memory queue
+
+**Decision:** The MQTT callback does pure work only — decode + `build_row` validate-and-drop — then `put_nowait` onto a bounded `queue.Queue` and returns immediately; it never touches the DB. A single worker thread owns the sole DB connection and does all inserts and reconnect/backoff. On `queue.Full`: drop-and-log (bounded, logged loss). Auto-ack of QoS-1 is retained; inserts stay idempotent. Graceful shutdown disconnects MQTT, drains the queue, then closes the connection; an unexpected worker-thread death takes the process down (`os._exit`) so `restart: unless-stopped` recovers it. Initial broker connect is wrapped in a daemon-side retry loop (symmetric with DB connect), not gated by a compose healthcheck.
+
+**Why:** The earlier reconnect logic ran `connect_db` on paho's single network thread, so a DB outage blocked keepalive; the broker dropped the clean-session client at ~90s, discarding the subscription and unacked messages — silent loss across any outage longer than a reboot (#21). Decoupling keeps keepalive flowing so the MQTT session survives the whole outage. Bounded/logged loss is consistent with DEC-004 validate-and-drop and DEC-002 ("an outage is a dropped publish, nothing worse"); the canonical producer (tinkle) publishes QoS 0 anyway (SPEC §3), so no real redelivery guarantee is given up.
+
+**Tradeoff:** The in-memory queue is not durable — a crash loses queued rows. Accepted: a durable queue would make the store stateful (against DEC-001's boring-store spirit), and idempotent inserts already make redelivery/replay safe. Manual-ack-after-insert (redelivery) was rejected to avoid hot-redelivery loops and worker/ack entanglement.
+
+**Revisit:** If a producer that genuinely requires at-least-once delivery is onboarded, reweigh manual-ack vs. this bounded-loss contract at onboarding.
+
+---
+
+## DEC-007: One shared `ingest` broker credential, `read farm/#`
+
+**Decision:** All ingest daemons authenticate to Mosquitto as a single `ingest` user with `read farm/#` (see `deploy/mosquitto/aclfile`) — one shared consumer credential across every producer, distinct from the per-producer *publish* credentials (e.g. `tinkle` → `farm/irrigation/#`).
+
+**Why:** The read side is a trusted, co-located consumer; per-daemon read credentials would add key management for no isolation benefit on a LAN broker. Publish credentials stay per-producer because that boundary (a producer can only write its own namespace) is the one that matters (DEC-002).
+
+**Tradeoff:** A second producer's ingest daemon reuses this credential rather than getting its own. Deliberate — documented here so it reads as intentional, not an oversight, when that daemon appears.
+
+**Revisit:** If a consumer ever needs to be confined to a sub-namespace (e.g. a third-party dashboard reading only `farm/irrigation/#`), issue it its own read-scoped credential then.
+
+---
+
 *Settled operational choices (keep raw forever / no downsampling; pin every container image; Mosquitto as the broker; Grafana as the only UI) live as prose in `SPEC.md`. They graduate to a DEC here only if their reasoning needs preserving.*
