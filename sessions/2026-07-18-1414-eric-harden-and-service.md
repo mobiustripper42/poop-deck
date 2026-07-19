@@ -6,7 +6,7 @@ branch: task/harden-and-service
 started: 2026-07-18T14:14:48Z
 ended:
 points:
-pr_numbers: [23, 24]
+pr_numbers: [23, 24, 25]
 status: open
 transcript: /home/estoffer/.claude/projects/-home-estoffer-poop-deck/d4b4d6fa-3757-4924-b2ff-0ef8f1100a46.jsonl
 ---
@@ -44,6 +44,23 @@ transcript: /home/estoffer/.claude/projects/-home-estoffer-poop-deck/d4b4d6fa-37
 **Branch:** task/deploy-docs-grafana-ufw
 **Opened at:** 2026-07-19T03:14:11Z
 
+## Task 3: Reference — update tinkle publisher for the hardened broker (#13, poop-deck side)
+
+**Completed:**
+- Updated `docs/reference/tinkle_publish.ino` (the canonical example tinkle firmware copies): real bee-grace host `192.168.50.201`, the `tinkle` producer login (username + password **placeholder**, no secret committed), `mqtt.connect()` passes user/pass. It predated #15 — connected anonymously, so firmware copied from it would be refused by the hardened broker.
+- **Discovered:** the real tinkle controller has NOT been publishing to the broker at all — DB holds only `tinkle-sim` rows; every `tinkle` broker login is the synth publisher (container IPs), no real `source='tinkle'` runs. A week of real irrigation runs went unrecorded.
+
+**Code review:** Reference template (Arduino sketch, not runtime) — no agent run. No secret committed.
+**PR:** [#25](https://github.com/mobiustripper42/poop-deck/pull/25) — does NOT close #13.
+**Points:** 2
+**Blocked:** #13 not done. Firmware flash is a tinkle-repo task (DEC-002); live-verify (a real run lands + shows on dashboard) follows once tinkle publishes. That's the outstanding step and it's not doable from bee-grace.
+**Branch:** task/13-tinkle-onboard-reference
+**Opened at:** 2026-07-19T04:18:07Z
+
 **Next Steps:**
+- **#13 finish:** flash tinkle firmware from the updated `tinkle_publish.ino` (+ real MQTT_TINKLE_PASSWORD), then verify a real `source='tinkle'` run lands and shows on the dashboard.
+- Merge PRs #23 (ingest worker queue / #21), #24 (deploy docs), #25 (tinkle reference / #13-prep).
+- Reconcile #13 issue text: says QoS 1, but SPEC + .ino + DEC-006 are QoS 0 — fix the one line.
+- Backlog still open: #17 backups + #20 sheepdog (mill-dev buddy), #18 log rotation/watchdog, #19 power/placement, #10 remote access, #11 control-settings (needs-decision).
 
 **Context:**
