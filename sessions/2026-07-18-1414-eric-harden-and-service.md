@@ -6,7 +6,7 @@ branch: task/harden-and-service
 started: 2026-07-18T14:14:48Z
 ended:
 points:
-pr_numbers: [23]
+pr_numbers: [23, 24]
 status: open
 transcript: /home/estoffer/.claude/projects/-home-estoffer-poop-deck/d4b4d6fa-3757-4924-b2ff-0ef8f1100a46.jsonl
 ---
@@ -31,6 +31,18 @@ transcript: /home/estoffer/.claude/projects/-home-estoffer-poop-deck/d4b4d6fa-37
 **Points:** 5
 **Branch:** task/21-ingest-worker-queue
 **Opened at:** 2026-07-19T03:12:42Z
+
+## Task 2: deploy docs — Grafana access + honest ufw section
+
+**Completed:**
+- `deploy/README.md`: added a "Getting to Grafana" table near the top (LAN `192.168.50.201` + Tailscale `100.105.112.4`, port 3000, `admin` + `deploy/.env` password).
+- Rewrote the ufw section: bee-grace deliberately does **not** run a host firewall (LAN trusted, DB already loopback-bound). The old block was also unsafe (no `enable`, no SSH-allow → would lock out a headless box); replaced with a complete, lockout-safe recipe (SSH allow for LAN subnet + Tailscale, then enable) for if ever wanted.
+
+**Code review:** Docs-only (markdown) — no review agent run.
+**PR:** [#24](https://github.com/mobiustripper42/poop-deck/pull/24)
+**Points:** 1
+**Branch:** task/deploy-docs-grafana-ufw
+**Opened at:** 2026-07-19T03:14:11Z
 
 **Next Steps:**
 
