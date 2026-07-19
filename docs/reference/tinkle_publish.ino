@@ -15,9 +15,18 @@
 #include <ArduinoJson.h>
 #include <time.h>
 
-static const char* MQTT_HOST   = "192.168.1.xxx";  // Beelink
+static const char* MQTT_HOST   = "192.168.50.201";  // bee-grace on the farm LAN
 static const uint16_t MQTT_PORT = 1883;
 static const char* MQTT_CLIENT_ID = "tinkle";
+
+// The broker requires auth (anonymous access is off). These are the `tinkle`
+// producer credentials — the username is "tinkle"; the password is issued to
+// you out-of-band (it's MQTT_TINKLE_PASSWORD in Poop Deck's deploy/.env).
+// Paste your real password below. Do NOT commit it — keep it out of the repo,
+// e.g. in a gitignored secrets header. The ACL lets "tinkle" publish only under
+// farm/irrigation/#, so these creds can't touch anything else.
+static const char* MQTT_USER = "tinkle";
+static const char* MQTT_PASS = "PASTE_YOUR_TINKLE_PASSWORD_HERE";
 static const uint8_t SCHEMA_V = 1;
 
 WiFiClient wifiClient;
@@ -35,7 +44,9 @@ void mqttTick() {
   unsigned long now = millis();
   if (now - lastMqttAttempt < MQTT_RETRY_MS) return;
   lastMqttAttempt = now;
-  mqtt.connect(MQTT_CLIENT_ID);   // don't care if it fails; we retry
+  // Authenticate as the "tinkle" producer. A bad/missing password is refused by
+  // the broker (the connect just fails and we retry) — same non-blocking path.
+  mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS);   // don't care if it fails; we retry
 }
 
 void mqttBegin() {
