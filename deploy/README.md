@@ -9,6 +9,20 @@
 
 Pin every image. The compose stack runs the whole thing for development; the farm's headless box (bee-grace) runs the same shape.
 
+## Getting to Grafana (the dashboards)
+
+Grafana **is** the UI — everything you look at lives there. It listens on port **3000**.
+
+| From | URL |
+|------|-----|
+| On bee-grace itself | `http://localhost:3000` |
+| On the home LAN (phone, laptop) | `http://192.168.50.201:3000` — bee-grace's LAN address |
+| Anywhere, over Tailscale | `http://100.105.112.4:3000` — bee-grace's Tailscale address |
+
+Log in as **`admin`** with the password from `GRAFANA_ADMIN_PASSWORD` in `deploy/.env`. Sign-up and anonymous access are off, so there's no other way in. The irrigation dashboard is provisioned automatically — it's in the dashboards list once you're logged in.
+
+(bee-grace's addresses can change — LAN IP if the router reassigns it, Tailscale IP is stable. `tailscale ip -4` and `ip -4 addr show wlo1` on the box print the current ones.)
+
 ## Secrets
 
 All credentials live in `deploy/.env` (gitignored). Copy the template and fill it in **before** first `up`:
@@ -39,17 +53,25 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v     #
 
 **Still deliberately out of scope (kitchen-table LAN tier):** TLS on MQTT/Grafana, disk encryption, MFA, cert management. Those belong with internet exposure (#10), not here.
 
-### Host firewall (ufw)
+### Host firewall (ufw) — deliberately NOT enabled
 
-Confirm only the broker and Grafana are open to the LAN, plus Tailscale, default-deny inbound:
+bee-grace does **not** run a host firewall, on purpose. The one thing that must not be LAN-reachable — the database — is already handled by the `127.0.0.1:5432` bind above, and the home LAN is a trusted zone (nothing else on it runs a host firewall either). A `ufw` layer on top of the loopback bind buys little and, on a headless box, adds a real lockout risk. So it's off.
+
+**If you do want it** (e.g. the box moves to a less-trusted network), here is the *complete, safe* recipe — the important part is not locking yourself out of a box you can't walk up to:
 
 ```bash
-sudo ufw default deny incoming
-sudo ufw allow in on tailscale0
+# SSH FIRST, or you lose your only way in. Allow SSH from the LAN + Tailscale:
+sudo ufw allow from 192.168.50.0/24 to any port 22 proto tcp   # LAN SSH fallback
+sudo ufw allow in on tailscale0                                # Tailscale (SSH + all)
+# Then the services:
 sudo ufw allow 1883/tcp        # MQTT (LAN producers)
 sudo ufw allow 3000/tcp        # Grafana (phones on the LAN)
-sudo ufw status verbose        # 5432 must NOT appear — it's loopback-bound
+sudo ufw default deny incoming # everything else inbound denied
+sudo ufw enable                # <-- the rules do NOTHING until this runs
+sudo ufw status verbose        # verify: 5432 must NOT appear (it's loopback-bound)
 ```
+
+Order matters: add the SSH-allow rules **before** `enable`. Skip them and `default deny` will cut port 22 the moment you enable — and with a headless box, that means the only recovery is physical access or a reboot. Tailscale being your sole path is a single point of failure; the LAN SSH rule is the fallback for when Tailscale is down.
 
 ## Upgrading an existing stack (bee-grace)
 
