@@ -246,6 +246,36 @@ def test_db_worker_drains_then_stops(monkeypatch):
     assert conn.closed               # closed its connection on the way out
 
 
+def test_db_worker_finishes_in_flight_row_when_stopped(monkeypatch):
+    # stop set while a row is mid-insert must NOT drop it — the worker finishes
+    # the in-flight row, then exits. (Graceful drain, not abandon.)
+    entered = threading.Event()
+    release = threading.Event()
+
+    class BlockingConn(FakeConn):
+        def cursor(self):
+            entered.set()        # signal we're inside the insert
+            release.wait(2)      # ...and block there until the test releases us
+            return FakeCursor(self)
+
+    conn = BlockingConn()
+    monkeypatch.setattr(ing, "connect_db", lambda dsn: conn)
+
+    q = queue.Queue()
+    q.put_nowait(ing.build_row(VALID))
+    stop = threading.Event()
+    worker = threading.Thread(target=ing.db_worker, args=(q, "postgresql://x", stop))
+    worker.start()
+
+    assert entered.wait(2)   # worker is now blocked mid-insert
+    stop.set()               # request stop with the row still in flight
+    release.set()            # let the insert complete
+    worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert conn.committed == 1   # in-flight row finished rather than being dropped
+
+
 # --- redelivery-is-a-no-op: against the live stack -------------------------
 
 @pytest.fixture

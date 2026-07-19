@@ -208,19 +208,27 @@ def on_connect(client, userdata, flags, rc, properties=None):
         log.error("connect failed rc=%s", rc)
 
 
-def connect_broker(client, host, port, keepalive=60):
+def connect_broker(client, host, port, stop, keepalive=60):
     """Connect to the broker, retrying with capped backoff — symmetric with
     connect_db, so a cold start before the broker is listening doesn't crash the
-    daemon (self-contained; holds regardless of launcher, not just compose)."""
+    daemon (self-contained; holds regardless of launcher, not just compose).
+
+    Observes `stop` so a shutdown signal received *during* the initial-connect
+    retry exits promptly (`stop.wait` wakes the moment it's set) instead of
+    running out the container's stop grace period to SIGKILL — `client.disconnect`
+    is a no-op before the first connect, so this loop is the only thing watching.
+    Returns True once connected, False if aborted by stop before connecting."""
     delay = 1
-    while True:
+    while not stop.is_set():
         try:
             client.connect(host, port, keepalive=keepalive)
-            return
+            return True
         except OSError as e:
             log.error("broker connect failed (%s); retrying in %ss", e, delay)
-            time.sleep(delay)
+            if stop.wait(delay):  # wakes immediately if a signal sets stop mid-backoff
+                break
             delay = min(delay * 2, 30)
+    return False
 
 
 def main():
@@ -239,19 +247,23 @@ def main():
     client.on_message = on_message
 
     def bye(signum, frame):
-        # Stop enqueuing first; the worker then drains the buffer below.
+        # Set stop first (unblocks connect_broker's retry if we're still in it),
+        # then disconnect so the network loop returns and on_message stops
+        # enqueuing; the worker drains the buffer below.
         log.info("shutting down")
+        stop.set()
         client.disconnect()
 
     signal.signal(signal.SIGTERM, bye)
     signal.signal(signal.SIGINT, bye)
 
-    connect_broker(client, BROKER, PORT, keepalive=60)
-    client.loop_forever()  # returns when bye() disconnects; auto-reconnects otherwise
+    if connect_broker(client, BROKER, PORT, stop, keepalive=60):
+        client.loop_forever()  # returns when bye() disconnects; auto-reconnects otherwise
 
     # Graceful drain: no more enqueues after disconnect, so let the worker finish
     # the backlog, then join. The timeout is a safety cap (e.g. DB down at exit),
     # not the primary path — docker's stop grace period would SIGKILL past it.
+    # stop.set() is idempotent — also covers a signal during the initial connect.
     stop.set()
     worker.join(timeout=30)
     sys.exit(0)
