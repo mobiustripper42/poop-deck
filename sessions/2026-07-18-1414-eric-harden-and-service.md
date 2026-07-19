@@ -58,7 +58,8 @@ transcript: /home/estoffer/.claude/projects/-home-estoffer-poop-deck/d4b4d6fa-37
 **Opened at:** 2026-07-19T04:18:07Z
 
 **Next Steps:**
-- **#13 finish:** flash tinkle firmware from the updated `tinkle_publish.ino` (+ real MQTT_TINKLE_PASSWORD), then verify a real `source='tinkle'` run lands and shows on the dashboard.
+- **#13 firmware BUILT (cross-repo, ~/tinkle):** tinkle PR [#155](https://github.com/mobiustripper42/tinkle/pull/155) — `telemetry_payload` (pure, host-tested core) + `poopdeck_publisher` (MQTT on a FreeRTOS task pinned to core 0, off the control loop; queue handoff mirrors #21; backfills the boot ring; ts reconstructed to UTC from local epoch). tinkle native suite 163 pass, esp32 firmware compiles (71% OTA slot). **NOT runtime-verified.**
+- **#13 finish (user, off-box):** review tinkle#155, `cp poopdeck_secret.ini.example poopdeck_secret.ini` + paste MQTT_TINKLE_PASSWORD, `pio run -e esp32 -t upload`, run a zone, verify a `source='tinkle'` row lands + shows on the dashboard.
 - Merge PRs #23 (ingest worker queue / #21), #24 (deploy docs), #25 (tinkle reference / #13-prep).
 - Reconcile #13 issue text: says QoS 1, but SPEC + .ino + DEC-006 are QoS 0 — fix the one line.
 - Backlog still open: #17 backups + #20 sheepdog (mill-dev buddy), #18 log rotation/watchdog, #19 power/placement, #10 remote access, #11 control-settings (needs-decision).
