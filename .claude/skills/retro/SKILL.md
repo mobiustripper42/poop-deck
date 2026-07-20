@@ -200,9 +200,15 @@ If `BRANCH != $WORKING_BRANCH`: STOP. Tell the user "Switch to `$WORKING_BRANCH`
 gh pr list --state merged --search "merged:>=<phase_start_iso> merged:<=<phase_end_iso>" --json number,title,mergedAt --limit 100
 ```
 
-Sort by `mergedAt` ascending. Each PR earns one patch bump + one CHANGELOG entry.
+Sort by `mergedAt` ascending. On **deploy-off-main** projects each PR earns one patch bump + CHANGELOG entry (Step 8.2). On **production-branch** projects patches already landed at `/promote-production` (one release = one patch), so Step 8.2 is skipped and this list feeds only the phase CHANGELOG summary.
 
-### Step 8.2 — Patch-bump per PR
+### Step 8.2 — Patch-bump per PR (deploy-off-main projects only)
+
+**Skip this entire step if a `production` branch exists** — those projects patch-bump at `/promote-production` on each ship, so per-PR patches here would double-count:
+```
+git show-ref --verify --quiet refs/remotes/origin/production && echo "has production — skip to 8.3"
+```
+If `origin/production` exists, go straight to Step 8.3 (minor bump). Only projects that deploy straight off `main` patch-bump per PR below.
 
 For each PR in order, sequentially:
 
@@ -221,7 +227,7 @@ c. **Commit + tag (main only):**
    git commit -m "Bump version to v<NEW_VERSION> (PR #<N>)"
    git tag "v<NEW_VERSION>"
    ```
-   Tags land on the trunk at bump time. Promotion to `production` (if the project has it) carries the already-tagged commit — `/promote-production` does not tag.
+   Tags land on the trunk at bump time. (This step runs only for deploy-off-main projects — there's no `production` branch to promote to.)
 
 ### Step 8.3 — Minor-bump at phase close
 
