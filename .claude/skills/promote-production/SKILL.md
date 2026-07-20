@@ -1,10 +1,10 @@
 ---
 name: promote-production
-description: Promote the active trunk (`main`) to the `production` deploy branch via fast-forward merge, then push. The release was already version-bumped and tagged on `main` by `/retro` or `/bump-major`, so promotion is deploy-only — it advances `production` to the tagged commit. Use when work on `main` is ready to ship. Requires `origin/production` to exist (DEC-S022).
+description: Promote the active trunk (`main`) to the `production` deploy branch via fast-forward merge, then push. Each promotion is a production release: dev projects patch-bump + tag the trunk here, then advance `production` to it (`/retro` owns the phase-close minor, `/bump-major` the major). Use when work on `main` is ready to ship. Requires `origin/production` to exist (DEC-S022).
 tools: Read, Edit, Write, Bash, Grep
 ---
 
-You are promoting `main` → `production`. Under DEC-S022, `main` is the always-active trunk and `production` is a downstream deploy pointer that Vercel (or whatever host) watches. Version bumps and tags already happened on `main` at `/retro` / `/bump-major`; this skill does **not** tag — it ff-merges the trunk into `production` and pushes, which is the deploy moment.
+You are promoting `main` → `production`. Under DEC-S022, `main` is the always-active trunk and `production` is a downstream deploy pointer that Vercel (or whatever host) watches. Each promotion is a production release: this skill **patch-bumps + tags** the trunk (dev projects), then ff-merges `main` into `production` and pushes — the deploy moment. `/retro` owns the phase-close minor bump; `/bump-major` the major. A `main` HEAD that already carries a fresh `v*` tag (e.g. `/retro`'s minor) ships as-is, without a second bump.
 
 ## Step 0 — Sanity gates
 
@@ -49,14 +49,43 @@ git log --oneline origin/main..origin/production
 ```
 Ask: **"production has diverged from main. Options: (a) merge production into main first (preserves both histories), (b) abort and resolve manually. Which?"** If (a), guide the user through merging `production` → `main` on a branch (likely needs a PR into `main`), then ask them to re-run /promote-production once that lands. Never auto-resolve.
 
-## Step 3 — Identify the release being shipped
+## Step 3 — Release the trunk (patch-bump + tag)
 
+Each promotion is a production release. First, is there anything new to ship?
 ```
-git fetch --tags
-SHIP_SHA=$(git rev-parse origin/main)
-SHIP_TAG=$(git tag --points-at "$SHIP_SHA" | grep '^v' | sort -V | tail -1)
+[ "$(git rev-parse origin/production)" = "$(git rev-parse origin/main)" ] && echo "nothing to ship"
 ```
-`SHIP_TAG` is the version tag already on the trunk HEAD (created by `/retro` or `/bump-major`). If `SHIP_TAG` is empty, surface a warning — promotion still works, but the promoted commit carries no version tag: **"⚠ No `v*` tag on `main` HEAD. Promote anyway (deploys an untagged commit), or bump first via `/retro` / `/bump-major`? (promote/abort)"** Wait. Do **not** invent or apply a tag here — tagging is the trunk skills' job (DEC-S022).
+If equal, STOP: "production is already at `main` HEAD — nothing to ship."
+
+**Non-dev project** (no `package.json` at repo root, DEC-S007): skip the bump. `SHIP_TAG=$(git tag --points-at origin/main | grep '^v' | sort -V | tail -1)` — promote whatever tag is there, or none. Go to Step 4.
+
+**Ship-as-is:** if `main` HEAD already carries a `v*` tag (e.g. `/retro`'s minor or `/bump-major`, and nothing merged since), don't double-bump:
+```
+HEAD_TAG=$(git tag --points-at origin/main | grep '^v' | sort -V | tail -1)
+```
+If `HEAD_TAG` is non-empty, set `SHIP_TAG="$HEAD_TAG"` and go to Step 4.
+
+**Otherwise, patch-bump on `main`** (release commits land on the trunk directly — same as `/retro` / `/bump-major`). Capture what's shipping first:
+```
+git checkout main && git pull --ff-only origin main
+SHIPPING=$(git log --oneline origin/production..HEAD)   # PRs/commits this release ships
+NEW_VERSION=$(npm version patch --no-git-tag-version | tr -d 'v')
+```
+Prepend a `CHANGELOG.md` entry (create it with a literal `# Changelog` header if absent; read first and STOP if the header isn't literal) after the header:
+```
+## [<NEW_VERSION>] - <YYYY-MM-DD>
+- <one bullet per PR/commit in $SHIPPING>
+```
+Commit, tag, push the trunk:
+```
+git add package.json CHANGELOG.md
+[ -f package-lock.json ] && git add package-lock.json
+git commit -m "Release v<NEW_VERSION>"
+git tag "v<NEW_VERSION>"
+git push origin main
+git push origin "v<NEW_VERSION>"
+SHIP_TAG="v<NEW_VERSION>"
+```
 
 ## Step 4 — ff-merge production → main HEAD
 
@@ -72,7 +101,7 @@ If `git merge --ff-only` fails (rare race — `main` moved between Step 2's chec
 ```
 git push origin production
 ```
-The tag, if any, is already on the remote (pushed by the trunk skill that created it). Only push tags here if Step 1's fetch revealed a local tag the remote lacks:
+The release tag was pushed in Step 3 (or already on the remote for a ship-as-is / non-dev promote). Belt-and-suspenders — push it if the remote somehow lacks it:
 ```
 [ -n "$SHIP_TAG" ] && git push origin "$SHIP_TAG" 2>/dev/null || true
 ```
