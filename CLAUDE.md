@@ -24,7 +24,7 @@ Project-specific docs are listed in `.claude/CLAUDE-context.md` under `## Additi
 
 ## Micro Workflow (every task, no exceptions)
 
-1. **Spec it** — poker estimate + acceptance criteria. Before writing code, pin what "done" looks like: enumerate the concrete set from source and confirm it with me. My live words override prior docs. (Issue exists from `/start-phase`.)
+1. **Spec it** — poker estimate + acceptance criteria. Before writing code, pin what "done" looks like: enumerate the concrete set from source and confirm it with me. My live words override prior docs. **Get the whole spec down before step 4** — the model does its best work on a complete brief given in one turn, not assembled across a dozen exchanges. (Issue exists from `/start-phase`.)
 2. **Plan it** — summarize what you're going to do. Wait for explicit approval before writing code or running commands.
 3. **Cut the branch** — once approved: `git checkout -b task/X.Y-short-description`.
 4. **Build it**
@@ -77,7 +77,7 @@ Project coding conventions — typing, component structure, data fetching, auth/
 
 | Agent | Model | When | Purpose |
 |-------|-------|------|-------|
-| @architect | Opus 4.8 | Before design decisions, new dependencies, scope creep | Coherence vs SPEC + DECISIONS |
+| @architect | Opus 5 | Before design decisions, new dependencies, scope creep | Coherence vs SPEC + DECISIONS |
 | @code-review | Sonnet | After every commit (wired into `/kill-this`) | Catch issues early |
 | @pm | Sonnet | Start/end of sessions via skills | Track progress, flag risks |
 | @ui-reviewer | Sonnet | After UI work, phase boundaries | Design quality |
@@ -88,19 +88,20 @@ Project coding conventions — typing, component structure, data fetching, auth/
 
 ## Model Selection
 
-Default to the cheapest model that does the job. **Opus 4.8 is the standing model** for development and architecture; **Sonnet** handles cheap/scoped work. **Fable is never the default** — it's a deliberate, scope-confirmed escalation for a *bundled* long-horizon unit (several related tasks run as one coherent multi-file pass); at ~2× Opus it drains usage fast, so reserve it for where that premium amortizes.
+Default to the cheapest model that does the job. **Opus 5 is the standing model** for development and architecture; **Sonnet** handles cheap/scoped work. **Fable is rarely worth it** — on agentic coding at `max` effort, Opus 5 lands within half a percent of Fable's peak at half the cost per task, so the frontier tier is a narrow exception, not a standing escalation path.
 
-| Tier | Model | Use for |
-|------|-------|---------|
-| Cheap | `claude-sonnet-5` | Trivial/scoped agents and reviews — fast, low-cost. |
-| Default | `claude-opus-4-8` | The standing model for development and architecture. Most work runs here. |
-| Frontier (on demand) | `claude-fable-5` | A *bundled* multi-file unit, scope-confirmed before spawning. One-off task → stay on Opus. |
+| Tier | Model | $/MTok (in/out) | Use for |
+|------|-------|-----------------|---------|
+| Cheap | `claude-sonnet-5` | $3 / $15 | Trivial/scoped agents and reviews — fast, low-cost. |
+| Default | `claude-opus-5` | $5 / $25 | The standing model for development and architecture. Most work runs here. |
+| Frontier (rare) | `claude-fable-5` | $10 / $50 | Reach for it only after Opus 5 at `max` has actually failed the task. Not a routine escalation. |
 
-- **The Fable trigger — bundle, then escalate.** Fable's edge is largest on long, coherent, multi-file work — also where the premium amortizes. Either party raises it: Claude proposes a bundle (with scope) before starting, or you say `bundle for fable`. It's opt-in and announced — confirm scope, give it the full combined spec up front, run it at high effort.
-- **Reach for `effort` before reaching for a bigger model.** `effort` (`low`/`medium`/`high`/`xhigh`/`max`, via `output_config`) buys quality more cheaply than a model jump on a task the current model can already do. `xhigh` is the floor for coding/agentic work, `high` for intelligence-sensitive work, `max` only when correctness must beat cost.
+- **Spec it fully, then let it run.** Opus 5's edge is largest on long, coherent, multi-file work handed the *complete* specification in one turn. Assembling the spec across interactive turns costs both quality and tokens. This is the highest-leverage habit change — it makes Micro Workflow step 1 load-bearing rather than ceremonial.
+- **`effort` is the primary lever, and it sweeps down.** `effort` (`low`/`medium`/`high`/`xhigh`/`max`, via `output_config`) buys quality more cheaply than a model jump. Start at `xhigh` for coding/agentic work and `high` elsewhere, then **try lower** — `low` and `medium` are unusually strong on Opus 5, and effort is what spends the usage allowance. `max` only when correctness must beat cost.
+- **Fast mode** runs ~2.5× faster at 2× the price ($10 / $50). A deliberate choice for a specific impatience, never a default.
 - **File memory is a force multiplier.** Session files, `design/`, `docs/DECISIONS.md`, and acceptance criteria are the persistent notes the model exploits to improve its own output. Keep them current and reference them explicitly.
-- **Agents:** model in agent frontmatter. `@architect` runs Opus 4.8, escalating to a Fable run only for genuinely hard or bundled design work. Reviewers (`@code-review`, `@pm`, `@doc-consistency`, `@tape-reader`) and `@ui-reviewer` stay Sonnet.
-- **New agents:** default to Sonnet; pin `model: opus` only when the agent's standing job needs it. Don't pin Fable — reach it via the bundle trigger.
+- **Agents:** model in agent frontmatter. `@architect` runs Opus 5. Reviewers (`@code-review`, `@pm`, `@doc-consistency`, `@tape-reader`) and `@ui-reviewer` stay Sonnet. The `model: opus` frontmatter alias resolves forward on its own — no per-release edit needed.
+- **New agents:** default to Sonnet; pin `model: opus` only when the agent's standing job needs it.
 
 ## PR Workflow
 
@@ -169,7 +170,7 @@ If a task feels bigger than its estimate: stop, re-estimate, update PROJECT_PLAN
 **Splitting is a reviewability call, not a capability one.** Points size estimation; they don't cap how much ships in one run.
 - **Don't split a coherent 8** (one feature, one migration, one subsystem) just to honor a ceiling — run it as one unit with the full spec up front.
 - **Do split** when the diff is too big to review well, the blast radius or reversibility worries you, there's a migration conflict, or an "8" is secretly two unrelated things.
-- **Still break genuine 13s** — for review and risk, and because a 13 usually means it isn't understood well enough yet.
+- **Still break genuine 13s** — for review and risk, and because a 13 usually means *I* don't understand it well enough yet. Both reasons are human-side; neither is about what the model can hold. Points stay 2/3/5/8/13 — a bigger unit of work is a bigger *run*, not a bigger number, and inventing a new bucket would break velocity comparability with every prior phase.
 
 ## Tone
 Occasional dry humor and sarcasm welcome. One good line beats three forced ones.
