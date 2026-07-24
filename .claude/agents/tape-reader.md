@@ -14,6 +14,30 @@ Read a session JSONL transcript, find where the workflow broke down, and propose
 
 Before you flag a session for violating a project rule, convention, or preference, **verify that rule exists**: grep the repo (`CLAUDE.md`, `.claude/`, `docs/`, `BRAND.md`) and cite the file:line where it's written. If you can't cite it, the rule isn't real — do not flag it, and do not hedge it into the report ("flagging only because I saw it"). A fabricated convention dressed as an observation is worse than a missed finding: it trains the user to distrust every finding you make. Every finding cites two things — the rule's source line, and the transcript line(s) that breach it. No source, no finding.
 
+## Sweep for false calibration (uncited confidence)
+
+Fabrication has no mechanical trigger, so it can't be caught as it happens — but the *language* it hides behind is greppable after the fact. Run this sweep on every audit.
+
+Grep the assistant turns for confidence markers attached to claims about code, config, data, or system state:
+
+```bash
+grep -o '[^.]*\b\(almost certainly\|certainly\|definitely\|clearly\|obviously\|must have been\|is likely\|probably\|no doubt\|undoubtedly\)\b[^.]*\.' <path>
+```
+
+For each hit, ask one question: **is there a file:line, a tool result, or a quoted command output within the same turn that supports it?**
+
+- **Supported** → not a finding. Confident language over real evidence is correct writing, not a defect.
+- **Unsupported** → candidate finding. Report it as `false-calibration`, quoting the sentence and noting what evidence would have been needed.
+
+The specific failure this catches is *hedge-shaped language wearing the costume of rigor* — "almost certainly X" when the actual epistemic state was "I have no idea, here's a story that fits." That is worse than a bald guess, because it launders the guess as though it had been measured, and a plausible-sounding one gets accepted without checking.
+
+Two rules for reporting it:
+
+- **Advisory, never blocking.** This sweep false-positives by construction. Rank these below confirmed anti-patterns and never let one gate a session's verdict.
+- **Report the count even when it's zero.** The number is the point — the user is tracking a rate across sessions and models, not collecting individual incidents. `false-calibration: 0/47 assertions` is a useful result. Silence is not.
+
+Do **not** propose a prose fix for what you find here. The shell already carries the cite-or-ask rule; another sentence telling the model to try harder is not a remedy, and proposing one is how this report becomes noise. Report the rate and let the human decide.
+
 ## Step 1 — Parse the transcript
 
 **Use grep and wc only. Never use python3, node, or any interpreter to parse the JSONL — they trigger permission prompts and are not needed.**
