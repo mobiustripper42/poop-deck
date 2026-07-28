@@ -4,7 +4,7 @@
   "tags": ["tinkle", "irrigation", "poop-deck"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": false,
   "refresh": "30s",
   "time": { "from": "now-7d", "to": "now" },
@@ -13,12 +13,96 @@
   "templating": { "list": [] },
   "panels": [
     {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Gallons per run by zone — true time axis (A)",
+      "description": "One bar per run, placed at its real start time, colored by zone. Gaps between waterings read as gaps and clustered runs render thin, because bar width is derived from how close the runs are. Unstacked — zones overlap rather than sum. Defaults to 4 days regardless of the dashboard time picker. This is version A; compare against B below and we keep one.",
+      "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "timeFrom": "4d",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "gallons",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "barAlignment": 0,
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisPlacement": "auto",
+            "stacking": { "mode": "none", "group": "A" }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT ts_start AS \"time\",\n       'zone ' || zone AS metric,\n       gallons\nFROM irrigation_runs\nWHERE $__timeFilter(ts_start) AND gallons IS NOT NULL\nORDER BY ts_start"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "barchart",
+      "title": "Gallons per run — evenly spaced (B)",
+      "description": "The same runs, one bar each, evenly spaced left-to-right oldest-to-newest. Zone lives in the x-axis label instead of the color, so a run is never squeezed by its neighbours — but the spacing no longer reflects real elapsed time. Defaults to 4 days. This is version B; compare against A above and we keep one.",
+      "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "timeFrom": "4d",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "gallons",
+          "min": 0,
+          "color": { "mode": "fixed", "fixedColor": "blue" },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "Run",
+        "orientation": "auto",
+        "xTickLabelRotation": -45,
+        "xTickLabelSpacing": 100,
+        "showValue": "auto",
+        "stacking": "none",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "-- Farm-local labels: ts_start is timestamptz, and to_char would otherwise\n-- render in the datasource session TZ (UTC), disagreeing with panel A's\n-- browser-local time axis. Bay Branch is America/New_York.\nSELECT to_char(ts_start AT TIME ZONE 'America/New_York', 'MM-DD HH24:MI') || '  z' || zone AS \"Run\",\n       gallons AS \"Gallons\"\nFROM irrigation_runs\nWHERE $__timeFilter(ts_start) AND gallons IS NOT NULL\nORDER BY ts_start"
+        }
+      ]
+    },
+    {
       "id": 1,
       "type": "stat",
       "title": "Faults in range",
       "description": "Runs reporting a fault in the selected time range. Any non-zero is worth a look.",
       "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
-      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 16 },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -55,7 +139,7 @@
       "title": "Gallons / minute by zone",
       "description": "Per-run delivery rate (gallons / duration * 60). Watch for a zone drifting low — the far-end under-delivery the EC gradient hints at.",
       "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 4 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
       "fieldConfig": {
         "defaults": {
           "unit": "none",
@@ -89,7 +173,7 @@
       "title": "Run history",
       "description": "Most recent runs across all zones.",
       "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 12 },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 28 },
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "options": { "showHeader": true, "cellHeight": "sm" },
       "targets": [
@@ -108,7 +192,7 @@
       "title": "Faults",
       "description": "Runs that reported a fault. Empty is good.",
       "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 21 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 37 },
       "fieldConfig": {
         "defaults": {},
         "overrides": [
