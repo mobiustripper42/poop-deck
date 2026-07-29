@@ -4,7 +4,7 @@
   "tags": ["tinkle", "irrigation", "poop-deck"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "editable": false,
   "refresh": "30s",
   "time": { "from": "now-7d", "to": "now" },
@@ -16,10 +16,9 @@
       "id": 10,
       "type": "timeseries",
       "title": "Gallons per run by zone — true time axis (A)",
-      "description": "One bar per run, placed at its real start time, colored by zone. Gaps between waterings read as gaps and clustered runs render thin, because bar width is derived from how close the runs are. Unstacked — zones overlap rather than sum. Defaults to 4 days regardless of the dashboard time picker. This is version A; compare against B below and we keep one.",
+      "description": "One bar per run, placed at its real start time, colored by zone. Gaps between waterings read as gaps and clustered runs render thin, because bar width is derived from how close the runs are. Unstacked — zones overlap rather than sum. Follows the dashboard time picker.",
       "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
-      "timeFrom": "4d",
       "fieldConfig": {
         "defaults": {
           "unit": "gallons",
@@ -28,7 +27,7 @@
             "drawStyle": "bars",
             "barAlignment": 0,
             "fillOpacity": 80,
-            "lineWidth": 1,
+            "lineWidth": 7,
             "gradientMode": "none",
             "showPoints": "never",
             "spanNulls": false,
@@ -36,7 +35,11 @@
             "stacking": { "mode": "none", "group": "A" }
           }
         },
-        "overrides": []
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "zone 1" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#7EB26D" } } ] },
+          { "matcher": { "id": "byName", "options": "zone 2" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#EAB839" } } ] },
+          { "matcher": { "id": "byName", "options": "zone 3" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#6ED0E0" } } ] }
+        ]
       },
       "options": {
         "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
@@ -56,15 +59,13 @@
       "id": 11,
       "type": "barchart",
       "title": "Gallons per run — evenly spaced (B)",
-      "description": "The same runs, one bar each, evenly spaced left-to-right oldest-to-newest. Zone lives in the x-axis label instead of the color, so a run is never squeezed by its neighbours — but the spacing no longer reflects real elapsed time. Defaults to 4 days. This is version B; compare against A above and we keep one.",
+      "description": "The same runs, one bar each, evenly spaced left-to-right oldest-to-newest, colored by zone to match panel A. Even spacing means the layout no longer reflects real elapsed time, but no run is ever squeezed by a close neighbour. Follows the dashboard time picker.",
       "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
-      "timeFrom": "4d",
       "fieldConfig": {
         "defaults": {
           "unit": "gallons",
           "min": 0,
-          "color": { "mode": "fixed", "fixedColor": "blue" },
           "custom": {
             "lineWidth": 1,
             "fillOpacity": 80,
@@ -72,18 +73,22 @@
             "axisPlacement": "auto"
           }
         },
-        "overrides": []
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "zone 1" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#7EB26D" } } ] },
+          { "matcher": { "id": "byName", "options": "zone 2" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#EAB839" } } ] },
+          { "matcher": { "id": "byName", "options": "zone 3" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#6ED0E0" } } ] }
+        ]
       },
       "options": {
         "xField": "Run",
         "orientation": "auto",
         "xTickLabelRotation": -45,
         "xTickLabelSpacing": 100,
-        "showValue": "auto",
-        "stacking": "none",
+        "showValue": "never",
+        "stacking": "normal",
         "groupWidth": 0.7,
         "barWidth": 0.9,
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
         "tooltip": { "mode": "single", "sort": "none" }
       },
       "targets": [
@@ -92,7 +97,7 @@
           "datasource": { "type": "postgres", "uid": "poopdeck-timescale" },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "-- Farm-local labels: ts_start is timestamptz, and to_char would otherwise\n-- render in the datasource session TZ (UTC), disagreeing with panel A's\n-- browser-local time axis. Bay Branch is America/New_York.\nSELECT to_char(ts_start AT TIME ZONE 'America/New_York', 'MM-DD HH24:MI') || '  z' || zone AS \"Run\",\n       gallons AS \"Gallons\"\nFROM irrigation_runs\nWHERE $__timeFilter(ts_start) AND gallons IS NOT NULL\nORDER BY ts_start"
+          "rawSql": "-- Farm-local labels: ts_start is timestamptz, and to_char would otherwise\n-- render in the datasource session TZ (UTC), disagreeing with panel A's\n-- browser-local time axis. Bay Branch is America/New_York.\n-- One column per zone so the barchart colors each bar by zone (matching A);\n-- each run is non-null in exactly one zone column. Zones 1-3 are the full set.\nSELECT to_char(ts_start AT TIME ZONE 'America/New_York', 'MM-DD HH24:MI') AS \"Run\",\n       CASE WHEN zone = 1 THEN gallons END AS \"zone 1\",\n       CASE WHEN zone = 2 THEN gallons END AS \"zone 2\",\n       CASE WHEN zone = 3 THEN gallons END AS \"zone 3\"\nFROM irrigation_runs\nWHERE $__timeFilter(ts_start) AND gallons IS NOT NULL\nORDER BY ts_start"
         }
       ]
     },
